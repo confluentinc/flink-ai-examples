@@ -2,8 +2,7 @@ version: v1.0
 name: build
 agent:
   machine:
-    type: e2-standard-2
-    os_image: ubuntu2204
+    type: s1-prod-ubuntu24-04-amd64-1
 
 auto_cancel:
   running:
