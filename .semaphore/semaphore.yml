@@ -30,5 +30,5 @@ blocks:
         - name: "build"
           commands:
             - cache restore
-            - ./mvnw clean package
+            #- ./mvnw clean package. Disable until 2.2 is released for used
             - cache store
