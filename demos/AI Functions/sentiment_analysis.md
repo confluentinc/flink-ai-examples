@@ -4,7 +4,7 @@ The demo should be able to be ran within any cluster and a Flink compute pool. I
 
 AI Model Inference and Machine Learning Functions in Confluent Cloud for Apache Flink | Confluent Documentation 
 
-NOTE: You will need to have your own OpenAPI API key to run. You can get one at https://platform.openai.com/api-keys. There must be a couple of dollars on the API key. 
+NOTE: You will need to have your own OpenAI API key to run. You can get one at https://platform.openai.com/api-keys. There must be a couple of dollars on the API key. 
 
  
 
@@ -63,7 +63,7 @@ CREATE CONNECTION openai_connection
   );
 ```
 
-5. Then create the sentiment_analysis model with of Flink. In this model we give the connection information as well as the task and system prompt we want to use it for. 
+5. Then create the sentiment_analysis model within Flink. In this model we give the connection information as well as the task and system prompt we want to use it for. 
 
 ```
 CREATE MODEL sentiment_analysis

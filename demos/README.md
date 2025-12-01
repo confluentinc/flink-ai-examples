@@ -32,7 +32,7 @@ Contact: Taylor Bliszcz @ tbliszcz@confluent.io
 
 <!--
 
-How to get a stats model running in sagemaker and calling it from a stream. (Pull from huggingface, reccomendation type model)
+How to get a stats model running in sagemaker and calling it from a stream. (Pull from huggingface, recommendation type model)
 
 
 There are also 12 Machine Learning preprocessing functions: 
