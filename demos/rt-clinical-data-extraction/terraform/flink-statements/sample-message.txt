@@ -1,0 +1,14 @@
+{
+  "message_key": {
+    "string": "oTthQxIIXKBFOYvmmJwIUw"
+  },
+  "edi_type": {
+    "string": "HL7_MDM"
+  },
+  "edi_timestamp": {
+    "string": "2024-01-15T10:30:00Z"
+  },
+  "raw_edi_payload": {
+    "string": "MSH|^~\\&|EPIC|EMORY_HOSP|STREAM_BUS|HCLS_DEMO|202512181530||MDM^T02^MDM_T02|MSGID99812|P|2.5\\rPID|1||PAT12345^^^MRN||DOE^JONATHAN^W||19780520|M||W|123 MAIN ST^^ATLANTA^GA^30303||555-0199|||||\\rPV1|1|I|2N^201^01||||12345^SMITH^ALICE^M^DR||||||||||||ADM10092||||||||||||||||||||||||202512120800|202512181400\\rTXA|1|DS|TX/RTF|202512181525|||||12345^SMITH^ALICE^M^DR|||||||||P\\rOBX|1|TX|DS_SUMMARY^Discharge Summary^L||HOSPITAL COURSE: Patient admitted for acute myocardial infarction. Progressed well post-stent. \\X0D\\DISCHARGE MEDICATIONS: \\X0D\\1. Lisinopril 10mg PO Daily. \\X0D\\2. Atorvastatin 40mg at bedtime. \\X0D\\3. Metoprolol Tartrate 25mg BID. \\X0D\\4. DISCONTINUE pre-admission Amlodipine 5mg. \\X0D\\FOLLOW UP: See cardiology in 1 week.||||||F"
+  }
+}
