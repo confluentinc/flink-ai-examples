@@ -2,18 +2,18 @@
 
 This directory contains Terraform configuration split into **two separate folders** to avoid dependency issues:
 
-1. **`infrastructure/`** - Base infrastructure resources (Environment, Kafka, Flink Compute Pool, etc.)
-2. **`flink-statements/`** - Flink SQL statements (Bedrock connection and model)
+1. **`infrastructure/`** - Base infrastructure resources (Environment, Kafka, Flink Compute Pool, topics/ACLs, plus AWS IAM user for Bedrock)
+2. **`flink-statements/`** - Flink SQL objects (Bedrock connection + model, tables, agent, MCP connection/tool)
 
 Each folder is a separate Terraform configuration with its own state file.
 
 ## Prerequisites
 
-1. **Confluent Cloud Account**: Sign up at [confluent.cloud](https://confluent.cloud)
+1. **Confluent Cloud Account**: Sign up at [Confluent Cloud](https://confluent.cloud)
 2. **Confluent Cloud API Key**: Create an API key with appropriate permissions
-   - Go to: https://confluent.cloud/settings/api-keys
+   - Go to: `https://confluent.cloud/settings/api-keys`
    - Create a new API key with "Cloud Admin" or "Organization Admin" role
-3. **AWS Account**: With appropriate permissions to create IAM roles and policies
+3. **AWS Account**: With appropriate permissions to create IAM users and policies
 4. **Terraform**: Version >= 1.0
 5. **AWS CLI**: Configured with appropriate credentials
 
@@ -55,9 +55,13 @@ Each folder is a separate Terraform configuration with its own state file.
 2. **Create `terraform.tfvars`** with your values:
    - `confluent_cloud_api_key`: Your Confluent Cloud API key
    - `confluent_cloud_api_secret`: Your Confluent Cloud API secret
-   - `confluent_flink_api_key`: Flink API key for statement operations
-   - `confluent_flink_api_secret`: Flink API secret
-   - AWS credentials (optional if using IAM roles)
+   - `mcp_server_endpoint`: MCP Server endpoint URL
+   - `cognito_client_id`: Cognito OAuth client id
+   - `cognito_client_secret`: Cognito OAuth client secret
+
+   Notes:
+   - The Flink statements stack reads **Flink API key/secret**, **Kafka API key/secret**, and the dedicated **AWS Bedrock IAM user access keys** from the infrastructure stack via remote state.
+   - You normally do **not** need to provide `confluent_flink_api_key` / `confluent_flink_api_secret` or AWS access keys for this step.
 
 3. **Initialize and apply**:
    ```bash
@@ -75,17 +79,17 @@ Each folder is a separate Terraform configuration with its own state file.
 **Confluent Cloud Resources**:
 - **Confluent Environment**: Container for all Confluent resources
 - **Kafka Cluster**: Basic cluster for message streaming
-- **Kafka Topics**: 
-  - `fhir-messages` (input topic)
-  - `fhir-processed` (output topic)
+- **Kafka Topics**:
+  - `hl7-mdm-messages` (input topic; HL7 MDM EDI messages)
+  - `fhir-processed` (output topic; extracted medication JSON)
 - **Service Account**: For Flink application to access Kafka
-- **API Keys**: 
+- **API Keys**:
   - Kafka API key for service account
 - **ACLs**: Access control lists for Kafka topics and consumer groups
 - **Flink Compute Pool**: Compute resources for Flink applications
 
 **AWS Resources**:
-- **IAM Role**: For accessing AWS Bedrock
+- **IAM User + Access Keys**: Dedicated user used by the Flink Bedrock connection
 - **IAM Policy**: Grants permissions to invoke Bedrock models
 - **CloudWatch Log Group**: For application logging
 
@@ -94,6 +98,12 @@ Each folder is a separate Terraform configuration with its own state file.
 **Flink SQL Resources**:
 - **Bedrock Connection**: Connection to AWS Bedrock for AI model inference
 - **Bedrock Model**: Registered model for use in Flink SQL queries
+- **Tables/Statements/Agent**:
+  - Source table over `hl7-mdm-messages`
+  - Sink table over `fhir-processed`
+  - Sink table over `mcp-responses`
+  - Agent `medication_processing_agent` and statement `process-medications-agent`
+  - MCP connection `agentcore-mcp-server-connection` and tool `mcp-tool`
 
 ## Outputs
 
@@ -142,11 +152,11 @@ Key variables in `infrastructure/variables.tf`:
 Key variables in `flink-statements/variables.tf`:
 - `confluent_cloud_api_key`: Your Confluent Cloud API key
 - `confluent_cloud_api_secret`: Your Confluent Cloud API secret
-- `confluent_flink_api_key`: Flink API key for statement operations
-- `confluent_flink_api_secret`: Flink API secret
 - `aws_region`: AWS region for Bedrock
 - `bedrock_model_id`: AWS Bedrock model to use
-- AWS credentials (optional if using IAM roles)
+- `mcp_server_endpoint`: MCP Server endpoint URL
+- `cognito_client_id`: Cognito OAuth client id
+- `cognito_client_secret`: Cognito OAuth client secret
 
 ## Cleanup
 
@@ -172,22 +182,20 @@ terraform destroy
 
 ```
 terraform/
-├── infrastructure/          # Base infrastructure resources
-│   ├── main.tf             # Environment, Kafka, Topics, ACLs, Flink Compute Pool, AWS IAM
-│   ├── variables.tf        # Infrastructure variables
-│   ├── outputs.tf          # Infrastructure outputs (used by flink-statements)
-│   ├── versions.tf         # Provider versions
-│   └── README.md           # Infrastructure documentation
-│
-└── flink-statements/       # Flink SQL statements
-    ├── main.tf             # Remote state config and common locals
-    ├── flink-hl7-mdm-bedrock.tf  # Bedrock connection and model statements
-    ├── variables.tf        # Flink statements variables
-    ├── versions.tf         # Provider versions
-    └── README.md          # Flink statements documentation
+ infrastructure/          # Base infrastructure resources
+  main.tf             # Environment, Kafka, Topics, ACLs, Flink Compute Pool, AWS IAM user
+  variables.tf        # Infrastructure variables
+  outputs.tf          # Infrastructure outputs (used by flink-statements)
+  versions.tf         # Provider versions
+  README.md           # Infrastructure documentation
+
+ flink-statements/       # Flink SQL statements
+  main.tf             # Remote state config and common locals
+  flink-hl7-mdm-bedrock.tf  # Bedrock connection + model, tables, agent
+  flink-mcp-connection.tf   # MCP connection + tool
+  variables.tf        # Flink statements variables
+  versions.tf         # Provider versions
 ```
-
-See `README-STRUCTURE.md` for more details on the directory structure and remote state configuration.
 
 ## Troubleshooting
 
@@ -217,4 +225,3 @@ If Flink compute pool creation fails:
 - [Confluent Terraform Provider Documentation](https://registry.terraform.io/providers/confluentinc/confluent/latest/docs)
 - [Confluent Cloud Documentation](https://docs.confluent.io/cloud/current/overview.html)
 - [Confluent Flink Documentation](https://docs.confluent.io/cloud/current/flink/index.html)
-

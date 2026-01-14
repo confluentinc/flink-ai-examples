@@ -1,354 +1,219 @@
-# Flink MDM HealthLake Streaming Agent
+# Real-time Clinical Data Extraction (HL7 MDM  Bedrock  Flink Agent + MCP)
 
-A Terraform-based infrastructure project for deploying a Flink streaming application that consumes HL7 FHIR messages from Confluent Kafka topics and processes them using AWS Bedrock.
+Terraform-based demo that provisions Confluent Cloud infrastructure and deploys Confluent Flink SQL statements to:
+
+- Ingest **HL7 MDM EDI** messages from a Kafka topic (`hl7-mdm-messages`)
+- Use **AWS Bedrock** (via `ML_PREDICT`) to extract medication changes into JSON
+- Write extracted JSON to `fhir-processed`
+- Use a **Flink Streaming Agent** (`AI_RUN_AGENT`) with an **MCP tool** to call an MCP server (Bedrock AgentCore runtime) and emit results to `mcp-responses`
+
+For a detailed flow, see `DATA_FLOW_DIAGRAM.md`.
 
 ## Overview
 
-This project uses Terraform to provision:
-1. Confluent Cloud Kafka cluster and topics for HL7 FHIR messages
-2. Confluent Flink compute pool for stream processing
-3. Flink SQL statements to process FHIR messages and invoke AWS Bedrock
-4. AWS IAM roles and policies for Bedrock access
+This project provisions:
+
+- **Confluent Cloud**: Environment, Kafka cluster, topics, service account + API keys, ACLs, Flink compute pool
+- **AWS**: A dedicated **IAM user + access keys** for Bedrock invocation (used by the Flink Bedrock connection)
+- **Flink SQL (via Terraform)**:
+  - Bedrock connection + model (`mdm_fhir_conv_model`)
+  - Kafka-catalog tables for source/sinks
+  - Statements:
+    - `mdm-to-fhir-conversion` (HL7 MDM  medication JSON extraction)
+    - `process-medications-agent` (agent invokes MCP tools; results to `mcp-responses`)
 
 ## Prerequisites
 
 - Terraform >= 1.0
-- Confluent Cloud account (for Kafka and Flink)
-- AWS Account with Bedrock access
-- Confluent Cloud API Key with appropriate permissions
-- AWS CLI configured (for IAM resource creation)
+- Confluent Cloud account (Kafka + Flink)
+- Confluent Cloud API key/secret (Cloud Admin or Org Admin recommended for setup)
+- Kafka API key/secret (for topic + ACL operations)
+- AWS account with **Bedrock model access enabled** in your chosen region
+- AWS credentials locally (only needed for Terraform to create the IAM user/policy in `terraform/infrastructure`)
+
+Optional:
+- Schema Registry / Stream Governance (this repo includes optional schema registration controlled by `enable_schema_registry`)
 
 ## Project Structure
 
 ```
-flink-mdm-healthlake/
-├── README.md                                  # This file
-├── terraform/                                 # Terraform infrastructure code
-│   ├── infrastructure/                       # Base infrastructure resources
-│   │   ├── main.tf                            # Environment, Kafka, Topics, ACLs, Flink Compute Pool, AWS IAM
-│   │   ├── variables.tf                       # Infrastructure variables
-│   │   ├── outputs.tf                         # Infrastructure outputs
-│   │   ├── versions.tf                        # Provider versions
-│   │   └── README.md                          # Infrastructure documentation
-│   │
-│   └── flink-statements/                      # Flink SQL statements
-│       ├── main.tf                            # Remote state config and common locals
-│       ├── flink-hl7-mdm-bedrock.tf           # Bedrock connection and model statements
-│       ├── variables.tf                       # Flink statements variables
-│       ├── versions.tf                        # Provider versions
-│       └── README.md                          # Flink statements documentation
+demos/rt-clinical-data-extraction/
+ README.md
+ DATA_FLOW_DIAGRAM.md
+ terraform/
+     infrastructure/        # Confluent env/cluster/topics/ACLs/compute pool + AWS IAM user for Bedrock
+     flink-statements/      # Flink SQL: Bedrock connection/model, tables, agent, MCP connection/tool
 ```
 
 ## Quick Start
 
-This project uses **two separate Terraform configurations** to avoid dependency issues:
-1. **Infrastructure** - Base resources (Environment, Kafka, Flink Compute Pool, etc.)
-2. **Flink Statements** - Flink SQL statements (Bedrock connection and model)
+This demo uses **two separate Terraform configurations**:
 
-### 1. Deploy Infrastructure First
+1) `terraform/infrastructure` (base infra)
+2) `terraform/flink-statements` (Flink SQL objects; reads infra outputs via remote state)
+
+### 1) Deploy Infrastructure
 
 ```bash
 cd terraform/infrastructure
-
-# Initialize Terraform
 terraform init
-
-# Review the plan
 terraform plan
-
-# Apply the configuration
 terraform apply
-
-# Get outputs (Kafka endpoints, API keys, etc.)
-terraform output
 ```
 
-This creates:
-- Confluent Environment
-- Kafka Cluster and Topics
-- Service Account and API Keys
+This creates (or reuses, if you provide existing IDs):
+- Confluent environment + Kafka cluster
+- Topics:
+  - `hl7-mdm-messages` (HL7 MDM EDI input)
+  - `fhir-processed` (Bedrock extraction output)
+- Service account + API keys
 - ACLs
-- Flink Compute Pool
-- AWS IAM Role for Bedrock
+- Flink compute pool
+- AWS IAM user + access keys for Bedrock invocation
 
-### 2. Deploy Flink Statements
-
-After infrastructure is deployed, deploy the Flink SQL statements:
+### 2) Deploy Flink Statements (Bedrock + MCP + Agent)
 
 ```bash
 cd ../flink-statements
-
-# Initialize Terraform
 terraform init
-
-# Review the plan
 terraform plan
-
-# Apply the configuration
 terraform apply
 ```
 
-This creates:
-- AWS Bedrock Connection
-- Bedrock Model for FHIR analysis
+Important:
+- This configuration reads remote state from `../infrastructure/terraform.tfstate`, so **run it from this folder** after infra is applied.
 
-**Note**: The Flink statements configuration uses Terraform remote state to reference infrastructure outputs, so infrastructure must be deployed first.
+## Required Configuration (tfvars)
 
-### 3. Configure Variables
+Each folder has its own `variables.tf` and expects its own `terraform.tfvars`.
 
-Each folder has its own `variables.tf`. You can create `terraform.tfvars` files in each folder with your credentials:
+### `terraform/infrastructure/terraform.tfvars`
 
-**infrastructure/terraform.tfvars**:
-- `confluent_cloud_api_key`: Your Confluent Cloud API key
-- `confluent_cloud_api_secret`: Your Confluent Cloud API secret
-- `confluent_kafka_api_key`: Kafka API key for topic/ACL operations
-- `confluent_kafka_api_secret`: Kafka API secret
-- Configure other variables as needed
+Youll typically set:
+- `confluent_cloud_api_key`
+- `confluent_cloud_api_secret`
+- `confluent_kafka_api_key`
+- `confluent_kafka_api_secret`
+- Optional: `confluent_environment_id`, `confluent_kafka_cluster_id` (to reuse existing)
 
-**flink-statements/terraform.tfvars**:
-- `confluent_cloud_api_key`: Your Confluent Cloud API key
-- `confluent_cloud_api_secret`: Your Confluent Cloud API secret
-- `confluent_flink_api_key`: Flink API key for statement operations
-- `confluent_flink_api_secret`: Flink API secret
-- AWS credentials (optional if using IAM roles)
+### `terraform/flink-statements/terraform.tfvars`
 
-## Infrastructure Components
+Youll typically set:
+- `confluent_cloud_api_key`
+- `confluent_cloud_api_secret`
 
-### Confluent Cloud Resources
+And you **must** configure the MCP server OAuth details used by `CREATE CONNECTION ... type = MCP_SERVER`:
+- `mcp_server_endpoint`
+- `cognito_client_id`
+- `cognito_client_secret`
 
-- **Environment**: Container for all Confluent resources
-- **Kafka Cluster**: Basic cluster for message streaming
-- **Kafka Topics**: 
-  - `fhir-messages` (input topic)
-  - `fhir-processed` (output topic)
-- **Service Account**: For Flink application to access Kafka
-- **API Keys**: 
-  - Kafka API key for service account
-  - Flink API key for service account
-- **ACLs**: Access control lists for Kafka topics and consumer groups
-- **Flink Compute Pool**: Compute resources for Flink applications
+Security note:
+- Prefer using environment variables for secrets (Terraform supports `TF_VAR_*`, e.g. `TF_VAR_cognito_client_secret`), and avoid committing secrets to source control.
 
-### AWS Resources
+## Kafka Topics and Schemas
 
-- **IAM Role**: For accessing AWS Bedrock
-- **IAM Policy**: Grants permissions to invoke Bedrock models
-- **CloudWatch Log Group**: For application logging
+### Topics used by the pipeline
 
-## Flink SQL Examples
+- **Input**: `hl7-mdm-messages`
+  - HL7 MDM EDI payload is carried in `raw_edi_payload`
+- **Intermediate**: `fhir-processed`
+  - Contains `message_key`, `fhir_json`, `processing_timestamp`
+  - `fhir_json` is the Bedrock response JSON
+- **Output**: `mcp-responses`
+  - Contains `message_key`, `input_medications_json`, `tool_response`, `processing_timestamp`
 
-### Basic FHIR Message Processing
+Notes:
+- `hl7-mdm-messages` and `fhir-processed` are created in `terraform/infrastructure`.
+- `mcp-responses` is created by the Flink statements as a sink table in the Kafka catalog (and maps to a Kafka topic of the same name).
 
-```sql
--- Create source table for FHIR messages
-CREATE TABLE fhir_messages (
-  message STRING
-) WITH (
-  'connector' = 'kafka',
-  'topic' = 'fhir-messages',
-  'properties.bootstrap.servers' = '<kafka-bootstrap-endpoint>',
-  'properties.security.protocol' = 'SASL_SSL',
-  'properties.sasl.mechanism' = 'PLAIN',
-  'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.plain.PlainLoginModule required username="<api-key>" password="<api-secret>";',
-  'format' = 'raw',
-  'scan.startup.mode' = 'latest-offset'
-);
+## Sending Test Messages (HL7 MDM Input)
 
--- Create sink table for processed messages
-CREATE TABLE fhir_processed (
-  result STRING
-) WITH (
-  'connector' = 'kafka',
-  'topic' = 'fhir-processed',
-  'properties.bootstrap.servers' = '<kafka-bootstrap-endpoint>',
-  'properties.security.protocol' = 'SASL_SSL',
-  'properties.sasl.mechanism' = 'PLAIN',
-  'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.plain.PlainLoginModule required username="<api-key>" password="<api-secret>";',
-  'format' = 'raw'
-);
+The repo includes a ready-to-paste sample payload:
 
--- Process messages (add your transformation logic here)
-INSERT INTO fhir_processed
-SELECT message FROM fhir_messages;
-```
+- `terraform/flink-statements/sample-message.txt`
 
-### Using Flink UDFs for Bedrock Integration
+You can produce that message to the `hl7-mdm-messages` topic using the Confluent Cloud Console.
 
-For AWS Bedrock integration, you'll need to create custom Flink UDFs (User Defined Functions) or use Flink's HTTP connector. See `terraform/flink-application.tf.example` for more examples.
+Tip:
+- Depending on the serializer/schema settings in the Console, you may see union wrapper JSON like `{"string": "value"}` (as in the sample). Use the sample as-is if thats what your topic expects.
 
-## Configuration
+## What the Flink Statements Do
 
-### Terraform Variables
+Deployed from `terraform/flink-statements/`:
 
-Key variables in `terraform/variables.tf`:
+- **Bedrock connection**: `bedrock-connection`
+  - Uses the dedicated IAM user access keys output by the infrastructure stack
+- **LLM model**: `mdm_fhir_conv_model`
+  - Provider: Bedrock, task: text generation
+  - Used by `ML_PREDICT` to extract medication changes
+- **MCP connection + tool**:
+  - Connection: `agentcore-mcp-server-connection` (type `MCP_SERVER`)
+  - Tool: `mcp-tool` (allowed tools include `add_medications`, `stop_medications`, `greet_user`)
+- **Statements**:
+  - `mdm-to-fhir-conversion`: reads HL7 MDM EDI, invokes `ML_PREDICT`, writes JSON to `fhir-processed`
+  - `process-medications-agent`: reads `fhir-processed`, calls `AI_RUN_AGENT` with `medication_processing_agent`, writes results to `mcp-responses`
 
-- `confluent_cloud_api_key`: Confluent Cloud API key
-- `confluent_cloud_api_secret`: Confluent Cloud API secret
-- `confluent_kafka_region`: Region for Kafka cluster
-- `confluent_flink_region`: Region for Flink compute pool
-- `kafka_input_topic`: Input topic name (default: `fhir-messages`)
-- `kafka_output_topic`: Output topic name (default: `fhir-processed`)
-- `flink_max_cfu`: Maximum Confluent Flink Units
-- `bedrock_model_id`: AWS Bedrock model ID
-- `aws_region`: AWS region for Bedrock
+## Output JSON Shape (from Bedrock)
 
-See `terraform/terraform.tfvars.example` for all available variables.
-
-## AWS Bedrock Setup
-
-1. **Enable Bedrock Access**: Ensure Bedrock is enabled in your AWS account and region
-2. **IAM Permissions**: Terraform automatically creates an IAM role with the following permissions:
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Action": [
-           "bedrock:InvokeModel",
-           "bedrock:InvokeModelWithResponseStream"
-         ],
-         "Resource": "arn:aws:bedrock:*::foundation-model/*"
-       }
-     ]
-   }
-   ```
-3. **Model Access**: Request access to the specific Bedrock model you want to use in the AWS Console
-
-## Kafka Topics
-
-Topics are automatically created by Terraform:
-- **Input Topic**: `hl7-mdm-messages` (HL7 MDM EDI messages)
-- **Output Topic**: `fhir-processed` (converted FHIR JSON messages)
-
-To produce test messages, use the Confluent Cloud UI or CLI with the bootstrap endpoint from Terraform outputs.
-
-### Sending Messages via Confluent Cloud Console
-
-You can send test messages directly through the Confluent Cloud Console. The topic uses Avro schema format with union types. Here's a sample message you can use:
+`fhir-processed.fhir_json` is expected to be a JSON object with two arrays:
 
 ```json
 {
-  "message_key": {
-    "string": "oTthQxIIXKBFOYvmmJwIUw"
-  },
-  "edi_type": {
-    "string": "HL7_MDM"
-  },
-  "edi_timestamp": {
-    "string": "2024-01-15T10:30:00Z"
-  },
-  "raw_edi_payload": {
-    "string": "MSH|^~\\&|EPIC|EMORY_HOSP|STREAM_BUS|HCLS_DEMO|202512181530||MDM^T02^MDM_T02|MSGID99812|P|2.5\\rPID|1||PAT12345^^^MRN||DOE^JONATHAN^W||19780520|M||W|123 MAIN ST^^ATLANTA^GA^30303||555-0199|||||\\rPV1|1|I|2N^201^01||||12345^SMITH^ALICE^M^DR||||||||||||ADM10092||||||||||||||||||||||||202512120800|202512181400\\rTXA|1|DS|TX/RTF|202512181525|||||12345^SMITH^ALICE^M^DR|||||||||P\\rOBX|1|TX|DS_SUMMARY^Discharge Summary^L||HOSPITAL COURSE: Patient admitted for acute myocardial infarction. Progressed well post-stent. \\X0D\\DISCHARGE MEDICATIONS: \\X0D\\1. Lisinopril 10mg PO Daily. \\X0D\\2. Atorvastatin 40mg at bedtime. \\X0D\\3. Metoprolol Tartrate 25mg BID. \\X0D\\4. DISCONTINUE pre-admission Amlodipine 5mg. \\X0D\\FOLLOW UP: See cardiology in 1 week.||||||F"
-  }
-}
-```
-
-**Note**: This message format uses Avro union types `["null", "string"]`, where string values are represented as `{"string": "value"}` and null values as `null`. The `raw_edi_payload` contains an HL7 MDM EDI message with escape sequences properly escaped for JSON.
-
-Alternatively, you can use the Python test client (see `README_TEST_CLIENT.md`) which handles the message formatting automatically.
-
-## HL7 FHIR Message Format
-
-The application expects HL7 FHIR R4 JSON format messages. Example:
-
-```json
-{
-  "resourceType": "Bundle",
-  "type": "transaction",
-  "entry": [
+  "medications_to_add": [
     {
-      "resource": {
-        "resourceType": "Patient",
-        "id": "example",
-        "name": [
-          {
-            "use": "official",
-            "family": "Doe",
-            "given": ["John"]
-          }
-        ]
-      }
+      "resourceType": "MedicationRequest",
+      "status": "active"
+    }
+  ],
+  "medications_to_stop": [
+    {
+      "resourceType": "MedicationRequest",
+      "status": "stopped"
     }
   ]
 }
 ```
 
-## Terraform Outputs
-
-### Infrastructure Outputs
-
-After deploying infrastructure (`cd terraform/infrastructure && terraform apply`):
-
-- `confluent_environment_id`: Environment ID
-- `confluent_environment_display_name`: Environment display name (used as Flink catalog)
-- `confluent_kafka_cluster_id`: Kafka cluster ID
-- `confluent_kafka_cluster_display_name`: Kafka cluster display name (used as Flink database)
-- `confluent_kafka_bootstrap_endpoint`: Kafka bootstrap endpoint
-- `confluent_kafka_rest_endpoint`: Kafka REST endpoint
-- `confluent_flink_compute_pool_id`: Flink compute pool ID
-- `confluent_flink_rest_endpoint`: Flink REST endpoint
-- `confluent_service_account_id`: Service account ID
-- `confluent_kafka_api_key_id`: Kafka API key ID
-- `confluent_kafka_api_key_secret`: Kafka API secret (sensitive)
-- `aws_region`: AWS region
-- `confluent_organization_id`: Organization ID
-
-### Flink Statements
-
-The Flink statements configuration automatically reads infrastructure outputs via remote state, so you don't need to manually pass values.
+Exact fields depend on the model response; the pipeline expects valid JSON and uses the agent/tools to action the changes.
 
 ## Cleanup
 
-To destroy all resources, destroy in reverse order:
-
-### 1. Destroy Flink Statements First
+Destroy in reverse order:
 
 ```bash
 cd terraform/flink-statements
 terraform destroy
-```
 
-### 2. Destroy Infrastructure
-
-```bash
 cd ../infrastructure
 terraform destroy
 ```
 
-**Warning**: This will delete all Confluent Cloud resources including the Kafka cluster and all data in topics.
+Warning: this deletes Confluent resources (Kafka cluster/topics) and associated data.
 
 ## Troubleshooting
 
-### Confluent Provider Authentication Issues
+### Flink statements fail due to MCP auth/endpoint
 
-If you encounter authentication errors:
-1. Verify your API key and secret are correct in `terraform.tfvars`
-2. Ensure the API key has appropriate permissions (Cloud Admin or Organization Admin)
-3. Check that the API key hasn't expired
+- Verify `mcp_server_endpoint`, `cognito_client_id`, and `cognito_client_secret` are correct.
+- Ensure your Cognito app client is configured for client-credentials flow and the scope matches what your MCP server expects.
 
-### Kafka ACL Issues
+### Bedrock invocation errors
 
-If the Flink application can't access Kafka topics:
-1. Verify ACLs were created: `terraform state list | grep acl`
-2. Check service account has correct permissions
-3. Review Confluent Cloud UI for ACL configuration
+- Confirm the Bedrock model is enabled/allowed in your AWS account/region.
+- Confirm the IAM user created by Terraform has `bedrock:InvokeModel` permissions for your configured model ARN(s).
 
-### Flink Compute Pool Issues
+### Kafka ACL issues
 
-If Flink compute pool creation fails:
-1. Verify you have sufficient CFU quota in Confluent Cloud
-2. Check region availability
-3. Ensure cloud provider matches your account type
+- Confirm the service account has READ on `hl7-mdm-messages` and WRITE on sink topics.
+- Re-apply `terraform/infrastructure` if ACLs drifted.
 
 ## References
 
 - [Confluent Quickstart Streaming Agents](https://github.com/confluentinc/quickstart-streaming-agents/tree/master/aws)
 - [Confluent Terraform Provider](https://registry.terraform.io/providers/confluentinc/confluent/latest/docs)
-- [Confluent Cloud Documentation](https://docs.confluent.io/cloud/current/overview.html)
-- [Confluent Flink Documentation](https://docs.confluent.io/cloud/current/flink/index.html)
-- [Flink SQL Documentation](https://nightlies.apache.org/flink/flink-docs-master/docs/dev/table/sql/)
-- [AWS Bedrock Documentation](https://docs.aws.amazon.com/bedrock/)
+- [Confluent Flink Docs](https://docs.confluent.io/cloud/current/flink/index.html)
+- [AWS Bedrock Docs](https://docs.aws.amazon.com/bedrock/)
 
 ## License
 
-This project is provided as-is for demonstration purposes.
+Provided as-is for demonstration purposes.

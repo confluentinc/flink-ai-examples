@@ -115,9 +115,9 @@ variable "project_name" {
 
 # Kafka Configuration
 variable "kafka_input_topic" {
-  description = "Kafka input topic name for FHIR messages"
+  description = "DEPRECATED (unused): previously the Kafka input topic for FHIR messages. Use kafka_hl7_mdm_topic for HL7 MDM EDI input instead."
   type        = string
-  default     = "fhir-messages"
+  default     = "hl7-mdm-messages"
 }
 
 variable "kafka_output_topic" {
