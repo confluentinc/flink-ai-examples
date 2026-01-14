@@ -1,4 +1,4 @@
-# Real-time Clinical Data Extraction (HL7 MDM  Bedrock  Flink Agent + MCP)
+# Real-time Clinical Data Extraction (HL7 MDM -> Bedrock -> Flink Agent + MCP)
 
 Terraform-based demo that provisions Confluent Cloud infrastructure and deploys Confluent Flink SQL statements to:
 
@@ -19,7 +19,7 @@ This project provisions:
   - Bedrock connection + model (`mdm_fhir_conv_model`)
   - Kafka-catalog tables for source/sinks
   - Statements:
-    - `mdm-to-fhir-conversion` (HL7 MDM  medication JSON extraction)
+    - `mdm-to-fhir-conversion` (HL7 MDM -> medication JSON extraction)
     - `process-medications-agent` (agent invokes MCP tools; results to `mcp-responses`)
 
 ## Prerequisites
@@ -38,11 +38,11 @@ Optional:
 
 ```
 demos/rt-clinical-data-extraction/
- README.md
- DATA_FLOW_DIAGRAM.md
- terraform/
-     infrastructure/        # Confluent env/cluster/topics/ACLs/compute pool + AWS IAM user for Bedrock
-     flink-statements/      # Flink SQL: Bedrock connection/model, tables, agent, MCP connection/tool
+├── README.md
+├── DATA_FLOW_DIAGRAM.md
+└── terraform/
+    ├── infrastructure/        # Confluent env/cluster/topics/ACLs/compute pool + AWS IAM user for Bedrock
+    └── flink-statements/      # Flink SQL: Bedrock connection/model, tables, agent, MCP connection/tool
 ```
 
 ## Quick Start
@@ -89,7 +89,7 @@ Each folder has its own `variables.tf` and expects its own `terraform.tfvars`.
 
 ### `terraform/infrastructure/terraform.tfvars`
 
-Youll typically set:
+You'll typically set:
 - `confluent_cloud_api_key`
 - `confluent_cloud_api_secret`
 - `confluent_kafka_api_key`
@@ -98,7 +98,7 @@ Youll typically set:
 
 ### `terraform/flink-statements/terraform.tfvars`
 
-Youll typically set:
+You'll typically set:
 - `confluent_cloud_api_key`
 - `confluent_cloud_api_secret`
 
@@ -135,7 +135,7 @@ The repo includes a ready-to-paste sample payload:
 You can produce that message to the `hl7-mdm-messages` topic using the Confluent Cloud Console.
 
 Tip:
-- Depending on the serializer/schema settings in the Console, you may see union wrapper JSON like `{"string": "value"}` (as in the sample). Use the sample as-is if thats what your topic expects.
+- Depending on the serializer/schema settings in the Console, you may see "union wrapper" JSON like `{"string": "value"}` (as in the sample). Use the sample as-is if that's what your topic expects.
 
 ## What the Flink Statements Do
 

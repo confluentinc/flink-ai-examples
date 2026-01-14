@@ -182,19 +182,18 @@ terraform destroy
 
 ```
 terraform/
- infrastructure/          # Base infrastructure resources
-  main.tf             # Environment, Kafka, Topics, ACLs, Flink Compute Pool, AWS IAM user
-  variables.tf        # Infrastructure variables
-  outputs.tf          # Infrastructure outputs (used by flink-statements)
-  versions.tf         # Provider versions
-  README.md           # Infrastructure documentation
-
- flink-statements/       # Flink SQL statements
-  main.tf             # Remote state config and common locals
-  flink-hl7-mdm-bedrock.tf  # Bedrock connection + model, tables, agent
-  flink-mcp-connection.tf   # MCP connection + tool
-  variables.tf        # Flink statements variables
-  versions.tf         # Provider versions
+├── infrastructure/                 # Base infrastructure resources
+│   ├── main.tf                     # Environment, Kafka, Topics, ACLs, Flink Compute Pool, AWS IAM user
+│   ├── variables.tf                # Infrastructure variables
+│   ├── outputs.tf                  # Infrastructure outputs (used by flink-statements)
+│   ├── versions.tf                 # Provider versions
+│   └── README.md                   # Infrastructure documentation
+└── flink-statements/               # Flink SQL statements
+    ├── main.tf                     # Remote state config and common locals
+    ├── flink-hl7-mdm-bedrock.tf    # Bedrock connection + model, tables, agent
+    ├── flink-mcp-connection.tf     # MCP connection + tool
+    ├── variables.tf                # Flink statements variables
+    └── versions.tf                 # Provider versions
 ```
 
 ## Troubleshooting
