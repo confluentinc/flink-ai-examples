@@ -1,0 +1,67 @@
+# Confluent Cloud API Credentials
+# Get these from: https://confluent.cloud/settings/api-keys
+confluent_cloud_api_key    = "YOUR_CONFLUENT_CLOUD_API_KEY"
+confluent_cloud_api_secret = "YOUR_CONFLUENT_CLOUD_API_SECRET"
+
+# Flink API Key and Secret
+# Note: These are used by Terraform provider to create Flink resources
+# The actual Flink API key used at runtime comes from infrastructure outputs via remote state
+confluent_flink_api_key    = "YOUR_FLINK_API_KEY"
+confluent_flink_api_secret = "YOUR_FLINK_API_SECRET"
+
+# Note: confluent_kafka_api_key, confluent_kafka_api_secret, and confluent_organization_id
+# are NOT needed here - they are infrastructure variables, not flink-statements variables
+# Set them in infrastructure/terraform.tfvars if needed
+
+# Existing Confluent Resources
+# Note: confluent_environment_id and confluent_kafka_cluster_id are NOT needed here
+# They are read from infrastructure outputs via remote state
+# If you need to use existing resources, set them in infrastructure/terraform.tfvars instead
+
+# Confluent Cloud Configuration
+confluent_cloud_provider = "AWS"
+confluent_flink_region   = "us-west-2"
+
+# Note: The following variables are infrastructure variables, not flink-statements variables:
+# - confluent_kafka_availability
+# - confluent_kafka_region
+# - environment
+# - project_name
+# - kafka_input_topic
+# - kafka_output_topic
+# - kafka_consumer_group_id
+# - kafka_topic_partitions
+# - kafka_topic_retention_ms
+# - flink_max_cfu
+# - flink_parallelism
+# - flink_checkpoint_interval
+# Set these in infrastructure/terraform.tfvars if needed
+
+# AWS Configuration
+aws_region = "us-west-2"
+
+# AWS Credentials for Bedrock Connection (optional - infrastructure creates dedicated IAM user)
+# The infrastructure stack creates a dedicated IAM user with access keys
+# These credentials are automatically read from infrastructure outputs via remote state
+# You only need to set these if you want to override the auto-created user
+# aws_access_key_id     = "YOUR_AWS_ACCESS_KEY_ID"
+# aws_secret_access_key = "YOUR_AWS_SECRET_ACCESS_KEY"
+# aws_session_token     = "YOUR_AWS_SESSION_TOKEN"  # Optional, for temporary credentials
+
+# AWS Bedrock Configuration
+bedrock_model_id = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+
+# MCP Server Configuration
+# Required: MCP Server endpoint URL for Bedrock AgentCore runtime
+# Format: https://bedrock-agentcore.<region>.amazonaws.com/runtimes/<runtime-arn>/invocations
+mcp_server_endpoint = "https://bedrock-agentcore.us-west-2.amazonaws.com/runtimes/arn%3Aaws%3Abedrock-agentcore%3Aus-west-2%3AACCOUNT_ID%3Aruntime%2FRUNTIME_NAME/invocations"
+
+# Cognito OAuth Configuration for MCP Server
+# Required: These are used to authenticate with the MCP server
+cognito_user_pool_id = "us-west-2_XXXXXXXXX"
+cognito_client_id    = "YOUR_COGNITO_CLIENT_ID"
+cognito_client_secret = "YOUR_COGNITO_CLIENT_SECRET"  # Sensitive - use TF_VAR_cognito_client_secret env var
+cognito_region       = "us-west-2"
+
+# Note: bedrock_model_arns and log_retention_days are infrastructure variables
+# Set them in infrastructure/terraform.tfvars if needed

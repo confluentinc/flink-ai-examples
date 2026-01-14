@@ -1,0 +1,82 @@
+# Confluent Cloud API Credentials
+# Get these from: https://confluent.cloud/settings/api-keys
+confluent_cloud_api_key    = "YOUR_CONFLUENT_CLOUD_API_KEY"
+confluent_cloud_api_secret = "YOUR_CONFLUENT_CLOUD_API_SECRET"
+
+# Kafka API Key and Secret (for topic/ACL operations)
+# Get these from: https://confluent.cloud/settings/api-keys
+confluent_kafka_api_key    = "YOUR_KAFKA_API_KEY"
+confluent_kafka_api_secret = "YOUR_KAFKA_API_SECRET"
+
+# Flink API Key and Secret
+# Get these from: https://confluent.cloud/settings/api-keys
+confluent_flink_api_key    = "YOUR_FLINK_API_KEY"
+confluent_flink_api_secret = "YOUR_FLINK_API_SECRET"
+
+# Schema Registry API Key and Secret (required if enable_schema_registry = true)
+# Get these from: https://confluent.cloud/settings/api-keys
+confluent_schema_registry_api_key    = "YOUR_SCHEMA_REGISTRY_API_KEY"
+confluent_schema_registry_api_secret = "YOUR_SCHEMA_REGISTRY_API_SECRET"
+
+# Confluent Organization ID
+# Get this from: https://confluent.cloud/settings/organization
+confluent_organization_id = "YOUR_ORGANIZATION_ID"
+
+# Existing Confluent Resources (Optional)
+# If you want to use existing Environment and Kafka Cluster, uncomment and set these:
+# Leave empty or commented out to create new resources
+# confluent_environment_id   = "env-xxxxx" # Get from Confluent Cloud UI
+# confluent_kafka_cluster_id = "lkc-xxxxx" # Get from Confluent Cloud UI
+
+# Confluent Cloud Configuration
+confluent_cloud_provider     = "AWS"
+confluent_kafka_availability = "SINGLE_ZONE"
+confluent_kafka_region       = "us-west-2"
+confluent_flink_region       = "us-west-2"
+
+# Project Configuration
+environment  = "dev"
+project_name = "flink-mdm-healthlake"
+
+# Kafka Configuration
+# Note: kafka_input_topic is deprecated/unused - the pipeline uses kafka_hl7_mdm_topic
+kafka_input_topic        = "fhir-messages"  # DEPRECATED - not used
+kafka_output_topic       = "fhir-processed"
+kafka_hl7_mdm_topic      = "hl7-mdm-messages"
+kafka_consumer_group_id  = "flink-fhir-consumer"
+kafka_topic_partitions   = 3
+kafka_topic_retention_ms = "604800000" # 7 days
+
+# Flink Configuration
+flink_max_cfu             = 5
+flink_parallelism         = 1
+flink_checkpoint_interval = 60000
+
+# AWS Configuration
+aws_region = "us-west-2"
+
+# AWS Credentials for Bedrock Connection (optional - Terraform creates dedicated IAM user)
+# The infrastructure stack creates a dedicated IAM user with access keys
+# These are only needed if you want to override the auto-created user
+# aws_access_key_id     = "YOUR_AWS_ACCESS_KEY_ID"
+# aws_secret_access_key = "YOUR_AWS_SECRET_ACCESS_KEY"
+# aws_session_token     = "YOUR_AWS_SESSION_TOKEN"  # Optional, for temporary credentials
+
+# AWS Bedrock Configuration
+bedrock_model_id = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+bedrock_model_arns = [
+  "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+]
+
+# Logging
+log_retention_days = 7
+
+# Schema Registry Configuration
+# Set to true if Stream Governance (ADVANCED package) is enabled on your environment
+# If false, the table will use plain JSON format without schema validation
+enable_schema_registry = false
+
+# Schema Registry Cluster Details (required if enable_schema_registry is true)
+# Get these from: Confluent Cloud Console > Your Environment > Schema Registry
+# confluent_schema_registry_cluster_id = "lsrc-xxxxx"
+# confluent_schema_registry_rest_endpoint = "https://psrc-xxxxx.us-west-2.aws.confluent.cloud"

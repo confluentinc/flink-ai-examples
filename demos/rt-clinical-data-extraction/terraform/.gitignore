@@ -3,6 +3,7 @@
 *.tfstate.*
 *.tfvars
 !terraform.tfvars.example
+!**/terraform.tfvars.example
 .terraform/
 .terraform.lock.hcl
 crash.log
