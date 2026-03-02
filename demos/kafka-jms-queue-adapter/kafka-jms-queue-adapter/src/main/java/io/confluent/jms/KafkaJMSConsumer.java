@@ -75,13 +75,31 @@ class KafkaJMSConsumer implements JMSConsumer {
         if (cm == null) {
             return null;
         }
-        String text = cm.bodyAsString();
-        KafkaTextMessage msg = new KafkaTextMessage(text, queueName, cm.deliveryId(), cm.timestamp());
+
+        Message msg;
+        if ("BYTES".equals(cm.messageType())) {
+            // Create BytesMessage
+            KafkaBytesMessage bytesMsg = new KafkaBytesMessage(
+                cm.body(), queueName, cm.deliveryId(), cm.timestamp());
+            if (sessionMode != JMSContext.AUTO_ACKNOWLEDGE) {
+                bytesMsg.setConsumerForAck(this);
+            }
+            msg = bytesMsg;
+        } else {
+            // Create TextMessage (default for "TEXT" or absent header)
+            String text = cm.bodyAsString();
+            KafkaTextMessage textMsg = new KafkaTextMessage(
+                text, queueName, cm.deliveryId(), cm.timestamp());
+            if (sessionMode != JMSContext.AUTO_ACKNOWLEDGE) {
+                textMsg.setConsumerForAck(this);
+            }
+            msg = textMsg;
+        }
+
         if (sessionMode == JMSContext.AUTO_ACKNOWLEDGE) {
             backend.ack(queueName, cm.deliveryId());
-        } else {
-            msg.setConsumerForAck(this);
         }
+
         return msg;
     }
 
@@ -171,6 +189,12 @@ class KafkaJMSConsumer implements JMSConsumer {
     }
 
     void acknowledge(KafkaTextMessage msg) {
+        if (msg.getQueueName() != null && msg.getDeliveryId() != null) {
+            backend.ack(msg.getQueueName(), msg.getDeliveryId());
+        }
+    }
+
+    void acknowledge(KafkaBytesMessage msg) {
         if (msg.getQueueName() != null && msg.getDeliveryId() != null) {
             backend.ack(msg.getQueueName(), msg.getDeliveryId());
         }

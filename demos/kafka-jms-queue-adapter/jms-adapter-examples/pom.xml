@@ -64,5 +64,11 @@
         <exec.mainClass>io.confluent.jms.JmsQueueListener</exec.mainClass>
       </properties>
     </profile>
+    <profile>
+      <id>bytes</id>
+      <properties>
+        <exec.mainClass>io.confluent.jms.BytesMessageExample</exec.mainClass>
+      </properties>
+    </profile>
   </profiles>
 </project>

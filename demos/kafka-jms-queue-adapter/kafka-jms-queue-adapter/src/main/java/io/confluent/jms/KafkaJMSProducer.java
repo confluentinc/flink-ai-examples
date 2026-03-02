@@ -1,5 +1,6 @@
 package io.confluent.jms;
 
+import javax.jms.BytesMessage;
 import javax.jms.CompletionListener;
 import javax.jms.Destination;
 import javax.jms.JMSProducer;
@@ -24,16 +25,34 @@ class KafkaJMSProducer implements JMSProducer {
         if (!(destination instanceof Queue q)) {
             throw new JMSRuntimeException("Only Queue destinations supported");
         }
-        if (!(message instanceof TextMessage tm)) {
-            throw new JMSRuntimeException("Only TextMessage supported");
-        }
+
         try {
             String queueName = q.getQueueName();
-            byte[] body = tm.getText() != null ? tm.getText().getBytes(java.nio.charset.StandardCharsets.UTF_8) : new byte[0];
-            backend.publish(queueName, null, body);
+            byte[] body;
+            String messageType;
+
+            if (message instanceof TextMessage tm) {
+                // TextMessage: convert text to UTF-8 bytes
+                body = tm.getText() != null
+                    ? tm.getText().getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                    : new byte[0];
+                messageType = "TEXT";
+            } else if (message instanceof BytesMessage bm) {
+                // BytesMessage: extract raw bytes
+                long bodyLength = bm.getBodyLength();
+                body = new byte[(int) bodyLength];
+                bm.reset();
+                bm.readBytes(body);
+                messageType = "BYTES";
+            } else {
+                throw new JMSRuntimeException(
+                    "Only TextMessage and BytesMessage supported, got: " + message.getClass().getName());
+            }
+
+            backend.publish(queueName, null, body, messageType);
             return this;
         } catch (javax.jms.JMSException e) {
-            // JMS-specific exception from getText() or getQueueName()
+            // JMS-specific exception from getMessage methods or getQueueName()
             throw new JMSRuntimeException(e.getMessage(), e.getErrorCode(), e);
         } catch (RuntimeException e) {
             // Runtime exception from backend.publish() - preserve full context
@@ -51,8 +70,15 @@ class KafkaJMSProducer implements JMSProducer {
 
     @Override
     public JMSProducer send(Destination destination, byte[] body) {
-        String text = body != null ? new String(body, java.nio.charset.StandardCharsets.UTF_8) : "";
-        return send(destination, text);
+        try {
+            BytesMessage bm = new KafkaBytesMessage(null, null, null);
+            if (body != null && body.length > 0) {
+                bm.writeBytes(body);
+            }
+            return send(destination, bm);
+        } catch (javax.jms.JMSException e) {
+            throw new JMSRuntimeException("Failed to create BytesMessage from byte array: " + e.getMessage(), e.getErrorCode(), e);
+        }
     }
 
     @Override

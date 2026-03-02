@@ -1,6 +1,6 @@
 # Kafka JMS Queue Adapter
 
-A **JMS 2.0 Queue API** on top of Apache Kafka using [Queues for Kafka](https://cwiki.apache.org/confluence/display/KAFKA/KIP-932%3A+Queues+for+Kafka) (KIP-932) share groups. Use standard JMS queue semantics (`ConnectionFactory`, `JMSContext`, `Queue`, `TextMessage`) with Kafka as the backend — similar to how [Amazon SQS Java Messaging Library](https://github.com/awslabs/amazon-sqs-java-messaging-lib) provides JMS for SQS.
+A **JMS 2.0 Queue API** on top of Apache Kafka using [Queues for Kafka](https://cwiki.apache.org/confluence/display/KAFKA/KIP-932%3A+Queues+for+Kafka) (KIP-932) share groups. Use standard JMS queue semantics (`ConnectionFactory`, `JMSContext`, `Queue`, `TextMessage`, `BytesMessage`) with Kafka as the backend — similar to how [Amazon SQS Java Messaging Library](https://github.com/awslabs/amazon-sqs-java-messaging-lib) provides JMS for SQS.
 
 ## Add to Your Project
 
@@ -53,10 +53,36 @@ consumer.setMessageListener(msg -> {
 // Listener runs in background; keep context/consumer open
 ```
 
+**BytesMessage** with primitives:
+
+```java
+import javax.jms.BytesMessage;
+
+try (JMSContext ctx = factory.createContext(JMSContext.AUTO_ACKNOWLEDGE)) {
+    Queue queue = ctx.createQueue("orders-queue");
+
+    // Send BytesMessage
+    BytesMessage msg = ctx.createBytesMessage();
+    msg.writeInt(12345);
+    msg.writeUTF("Order XYZ");
+    msg.writeDouble(99.95);
+    ctx.createProducer().send(queue, msg);
+
+    // Receive BytesMessage
+    BytesMessage received = (BytesMessage) ctx.createConsumer(queue).receive(5000);
+    if (received != null) {
+        int orderId = received.readInt();
+        String orderName = received.readUTF();
+        double price = received.readDouble();
+        System.out.println("Order: " + orderId + ", " + orderName + ", $" + price);
+    }
+}
+```
+
 ## Scope
 
 - **Queues only** — Topics, durable subscriptions, and shared consumers are not supported
-- **TextMessage only** — BytesMessage, MapMessage, ObjectMessage, StreamMessage throw `UnsupportedOperationException`
+- **Message types** — TextMessage and BytesMessage supported; MapMessage, ObjectMessage, StreamMessage throw `UnsupportedOperationException`
 - **Point-to-point** — Each message is delivered to exactly one consumer (Kafka share groups)
 - **Session modes** — `AUTO_ACKNOWLEDGE` and `CLIENT_ACKNOWLEDGE` supported
 - **Async consumption** — `setMessageListener()` for push-style delivery (cannot be combined with `receive()`)
@@ -103,6 +129,9 @@ mvn exec:java -Psimulate
 
 # Async consumption with MessageListener
 mvn exec:java -Plistener
+
+# BytesMessage with primitives
+mvn exec:java -Pbytes
 ```
 
 Environment variables:
@@ -143,9 +172,10 @@ docker exec kafka_qfk sh -c "
 | `JMSConsumer.receive()` / `receive(timeout)` | ✅ |
 | `JMSConsumer.setMessageListener()` (async) | ✅ |
 | `TextMessage` / `receiveBody(Class)` | ✅ |
+| `BytesMessage` / primitive read/write methods | ✅ |
 | `AUTO_ACKNOWLEDGE` / `CLIENT_ACKNOWLEDGE` | ✅ |
 | JMS headers: `JMSMessageID`, `JMSDestination`, `JMSTimestamp` | ✅ (on receive) |
-| Topics, BytesMessage, MapMessage, etc. | ❌ UnsupportedOperationException |
+| Topics, MapMessage, ObjectMessage, StreamMessage | ❌ UnsupportedOperationException |
 
 ## Configuration
 
@@ -157,6 +187,19 @@ docker exec kafka_qfk sh -c "
 | `CONFLUENT_API_SECRET` | — | Confluent Cloud API secret (env var) |
 
 **Session modes:** `AUTO_ACKNOWLEDGE` and `CLIENT_ACKNOWLEDGE` are supported. Use `message.acknowledge()` for explicit ack in `CLIENT_ACKNOWLEDGE` mode.
+
+## Message Format
+
+Messages are stored in Kafka topics with the following format:
+
+- **Key**: Auto-generated timestamp-based key (unless custom key provided)
+- **Value**: Message body as byte array
+  - TextMessage: UTF-8 encoded string
+  - BytesMessage: Raw bytes
+- **Headers**:
+  - `jms-message-type`: `TEXT` or `BYTES`
+
+**Backward Compatibility**: Messages without the `jms-message-type` header (from older versions) are treated as TextMessage.
 
 ## Troubleshooting
 

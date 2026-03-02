@@ -8,6 +8,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -35,6 +36,11 @@ import org.slf4j.LoggerFactory;
 class KafkaQueueBackend {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaQueueBackend.class);
+
+    // Message type header constants
+    private static final String JMS_MESSAGE_TYPE_HEADER = "jms-message-type";
+    private static final String MESSAGE_TYPE_TEXT = "TEXT";
+    private static final String MESSAGE_TYPE_BYTES = "BYTES";
 
     private final String bootstrapServers;
     private final String shareGroupPrefix;
@@ -117,12 +123,18 @@ class KafkaQueueBackend {
         return producer;
     }
 
-    String publish(String queue, String key, byte[] body) {
+    String publish(String queue, String key, byte[] body, String messageType) {
         QueueNameValidator.validate(queue);
 
         try {
             String k = key != null && !key.isEmpty() ? key : "msg-" + System.currentTimeMillis();
             ProducerRecord<String, byte[]> record = new ProducerRecord<>(queue, k, body);
+
+            // Add message type header
+            if (messageType != null && !messageType.isEmpty()) {
+                record.headers().add(JMS_MESSAGE_TYPE_HEADER, messageType.getBytes(StandardCharsets.UTF_8));
+            }
+
             RecordMetadata meta = getProducer().send(record).get(config.getProducerSendTimeoutMs(), TimeUnit.MILLISECONDS);
             return meta.partition() + ":" + meta.offset();
         } catch (TimeoutException e) {
@@ -151,10 +163,18 @@ class KafkaQueueBackend {
                 if (!records.isEmpty()) {
                     ConsumerRecord<String, byte[]> record = records.iterator().next();
                     String deliveryId = record.partition() + ":" + record.offset();
+
+                    // Read message type header (default to TEXT for backward compatibility)
+                    Header typeHeader = record.headers().lastHeader(JMS_MESSAGE_TYPE_HEADER);
+                    String messageType = MESSAGE_TYPE_TEXT;
+                    if (typeHeader != null) {
+                        messageType = new String(typeHeader.value(), StandardCharsets.UTF_8);
+                    }
+
                     InFlightDelivery ifd = new InFlightDelivery(queue, record, consumer, pc, System.currentTimeMillis());
                     inFlightDeliveries.put(deliveryId, ifd);
-                    log.debug("Consumer acquired for queue '{}', delivery ID: {}", queue, deliveryId);
-                    return new ConsumedMessage(deliveryId, record.key(), record.value(), record.timestamp());
+                    log.debug("Consumer acquired for queue '{}', delivery ID: {}, type: {}", queue, deliveryId, messageType);
+                    return new ConsumedMessage(deliveryId, record.key(), record.value(), record.timestamp(), messageType);
                 }
                 remaining -= pollMs;
             }
@@ -256,7 +276,7 @@ class KafkaQueueBackend {
         inFlightDeliveries.clear();
     }
 
-    record ConsumedMessage(String deliveryId, String key, byte[] body, long timestamp) {
+    record ConsumedMessage(String deliveryId, String key, byte[] body, long timestamp, String messageType) {
         String bodyAsString() {
             return body != null ? new String(body, StandardCharsets.UTF_8) : null;
         }

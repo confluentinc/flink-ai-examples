@@ -72,7 +72,8 @@ class KafkaJMSContext implements JMSContext {
 
     @Override
     public javax.jms.BytesMessage createBytesMessage() {
-        throw new UnsupportedOperationException("Only TextMessage supported - use createTextMessage()");
+        checkClosed();
+        return new KafkaBytesMessage(null, null, null);
     }
 
     @Override
