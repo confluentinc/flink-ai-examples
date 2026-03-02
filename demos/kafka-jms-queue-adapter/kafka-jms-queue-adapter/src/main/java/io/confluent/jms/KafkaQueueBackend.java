@@ -20,27 +20,58 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Kafka-backed queue service using Queues for Kafka (KIP-932) share groups.
  */
 class KafkaQueueBackend {
 
+    private static final Logger log = LoggerFactory.getLogger(KafkaQueueBackend.class);
+
     private final String bootstrapServers;
     private final String shareGroupPrefix;
     private final Properties baseProducerProps;
     private final Properties baseConsumerProps;
+    private final QueueBackendConfig config;
 
     private volatile KafkaProducer<String, byte[]> producer;
     private final Map<String, ConsumerPool> consumerPools = new ConcurrentHashMap<>();
     private final Map<String, InFlightDelivery> inFlightDeliveries = new ConcurrentHashMap<>();
     private final AtomicInteger consumerIdCounter = new AtomicInteger(0);
+    private final ScheduledExecutorService cleanupExecutor;
+    private volatile boolean closed = false;
 
     KafkaQueueBackend(String bootstrapServers, String shareGroupPrefix) {
+        this(bootstrapServers, shareGroupPrefix, QueueBackendConfig.defaults());
+    }
+
+    KafkaQueueBackend(String bootstrapServers, String shareGroupPrefix, QueueBackendConfig config) {
         this.bootstrapServers = bootstrapServers;
         this.shareGroupPrefix = shareGroupPrefix != null ? shareGroupPrefix : "jms-adapter-share-group";
+        this.config = config != null ? config : QueueBackendConfig.defaults();
         this.baseProducerProps = baseProducerProperties();
         this.baseConsumerProps = baseConsumerProperties();
+
+        // Start cleanup thread for expired in-flight deliveries
+        this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "jms-adapter-cleanup");
+            t.setDaemon(true);
+            return t;
+        });
+        this.cleanupExecutor.scheduleAtFixedRate(
+            this::cleanupExpiredDeliveries,
+            config.getCleanupIntervalMs(),
+            config.getCleanupIntervalMs(),
+            TimeUnit.MILLISECONDS
+        );
     }
 
     private Properties baseProducerProperties() {
@@ -87,18 +118,28 @@ class KafkaQueueBackend {
     }
 
     String publish(String queue, String key, byte[] body) {
+        QueueNameValidator.validate(queue);
+
         try {
             String k = key != null && !key.isEmpty() ? key : "msg-" + System.currentTimeMillis();
             ProducerRecord<String, byte[]> record = new ProducerRecord<>(queue, k, body);
-            RecordMetadata meta = getProducer().send(record).get();
+            RecordMetadata meta = getProducer().send(record).get(config.getProducerSendTimeoutMs(), TimeUnit.MILLISECONDS);
             return meta.partition() + ":" + meta.offset();
+        } catch (TimeoutException e) {
+            throw new RuntimeException(String.format(
+                "Timeout publishing to queue '%s' after %d ms", queue, config.getProducerSendTimeoutMs()), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while publishing to queue " + queue, e);
         } catch (Exception e) {
             throw new RuntimeException("Failed to publish to queue " + queue, e);
         }
     }
 
     ConsumedMessage consume(String queue, long timeoutMs) {
-        ConsumerPool pool = consumerPools.computeIfAbsent(queue, q -> new ConsumerPool(q, 10));
+        QueueNameValidator.validate(queue);
+
+        ConsumerPool pool = consumerPools.computeIfAbsent(queue, q -> new ConsumerPool(q, config.getConsumerPoolSize()));
         PooledConsumer pc = pool.acquire();
         try {
             KafkaShareConsumer<String, byte[]> consumer = pc.consumer;
@@ -110,8 +151,9 @@ class KafkaQueueBackend {
                 if (!records.isEmpty()) {
                     ConsumerRecord<String, byte[]> record = records.iterator().next();
                     String deliveryId = record.partition() + ":" + record.offset();
-                    InFlightDelivery ifd = new InFlightDelivery(queue, record, consumer, pc);
+                    InFlightDelivery ifd = new InFlightDelivery(queue, record, consumer, pc, System.currentTimeMillis());
                     inFlightDeliveries.put(deliveryId, ifd);
+                    log.debug("Consumer acquired for queue '{}', delivery ID: {}", queue, deliveryId);
                     return new ConsumedMessage(deliveryId, record.key(), record.value(), record.timestamp());
                 }
                 remaining -= pollMs;
@@ -143,12 +185,66 @@ class KafkaQueueBackend {
         try {
             ifd.consumer.acknowledge(ifd.record, ackType);
             ifd.consumer.commitSync();
+            log.debug("Settled delivery {} on queue '{}' with {}", deliveryId, queue, ackType);
         } finally {
             ifd.pooledConsumer.pool.release(ifd.pooledConsumer);
         }
     }
 
+    /**
+     * Cleanup thread method that releases expired in-flight deliveries.
+     * This prevents consumer pool exhaustion from messages that are never acknowledged.
+     */
+    private void cleanupExpiredDeliveries() {
+        if (closed) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long expirationThreshold = now - config.getInFlightDeliveryTimeoutMs();
+
+        inFlightDeliveries.entrySet().removeIf(entry -> {
+            String deliveryId = entry.getKey();
+            InFlightDelivery ifd = entry.getValue();
+
+            if (ifd.createdAtMs < expirationThreshold) {
+                try {
+                    log.warn("Auto-releasing expired in-flight delivery {} on queue '{}' (age: {} ms)",
+                        deliveryId, ifd.queue, now - ifd.createdAtMs);
+                    ifd.consumer.acknowledge(ifd.record, AcknowledgeType.RELEASE);
+                    ifd.consumer.commitSync();
+                } catch (Exception e) {
+                    log.error("Failed to auto-release expired delivery {} on queue '{}'",
+                        deliveryId, ifd.queue, e);
+                } finally {
+                    ifd.pooledConsumer.pool.release(ifd.pooledConsumer);
+                }
+                return true; // Remove from map
+            }
+            return false; // Keep in map
+        });
+    }
+
+    long getListenerPollIntervalMs() {
+        return config.getListenerPollIntervalMs();
+    }
+
     void close() {
+        closed = true;
+
+        // Shutdown cleanup executor
+        if (cleanupExecutor != null && !cleanupExecutor.isShutdown()) {
+            cleanupExecutor.shutdown();
+            try {
+                if (!cleanupExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    cleanupExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                cleanupExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+
         if (producer != null) {
             producer.close();
             producer = null;
@@ -171,21 +267,24 @@ class KafkaQueueBackend {
         final ConsumerRecord<String, byte[]> record;
         final KafkaShareConsumer<String, byte[]> consumer;
         final PooledConsumer pooledConsumer;
+        final long createdAtMs;
 
         InFlightDelivery(String queue, ConsumerRecord<String, byte[]> record,
                          KafkaShareConsumer<String, byte[]> consumer,
-                         PooledConsumer pooledConsumer) {
+                         PooledConsumer pooledConsumer,
+                         long createdAtMs) {
             this.queue = queue;
             this.record = record;
             this.consumer = consumer;
             this.pooledConsumer = pooledConsumer;
+            this.createdAtMs = createdAtMs;
         }
     }
 
     private class ConsumerPool {
         final String queue;
         final int size;
-        final java.util.Queue<PooledConsumer> available = new java.util.concurrent.ConcurrentLinkedQueue<>();
+        final LinkedBlockingQueue<PooledConsumer> available = new LinkedBlockingQueue<>();
         final Map<PooledConsumer, Boolean> all = new ConcurrentHashMap<>();
 
         ConsumerPool(String queue, int size) {
@@ -195,26 +294,38 @@ class KafkaQueueBackend {
 
         PooledConsumer acquire() {
             PooledConsumer pc = available.poll();
-            if (pc != null) return pc;
+            if (pc != null) {
+                log.debug("Reusing pooled consumer for queue '{}'", queue);
+                return pc;
+            }
+
+            // Try to create a new consumer if pool not at capacity
             if (all.size() < size) {
                 pc = createConsumer();
                 all.put(pc, Boolean.TRUE);
+                log.debug("Created new consumer for queue '{}' (pool size: {}/{})", queue, all.size(), size);
                 return pc;
             }
-            while (true) {
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("Interrupted", e);
+
+            // Pool is exhausted, wait for a consumer to become available
+            try {
+                log.debug("Consumer pool exhausted for queue '{}', waiting up to {} ms", queue, config.getConsumerAcquireTimeoutMs());
+                pc = available.poll(config.getConsumerAcquireTimeoutMs(), TimeUnit.MILLISECONDS);
+                if (pc == null) {
+                    throw new RuntimeException(String.format(
+                        "Consumer pool exhausted for queue '%s': all %d consumers in use and none became available within %d ms",
+                        queue, size, config.getConsumerAcquireTimeoutMs()));
                 }
-                pc = available.poll();
-                if (pc != null) return pc;
+                return pc;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while waiting for available consumer for queue " + queue, e);
             }
         }
 
         void release(PooledConsumer pc) {
             available.offer(pc);
+            log.debug("Released consumer back to pool for queue '{}'", queue);
         }
 
         private PooledConsumer createConsumer() {

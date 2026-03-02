@@ -22,8 +22,8 @@ class KafkaJMSConsumer implements JMSConsumer {
     private final KafkaQueueBackend backend;
     private final String queueName;
     private final int sessionMode;
+    private final long listenerPollMs;
     private static final long DEFAULT_RECEIVE_TIMEOUT = 5000;
-    private static final long LISTENER_POLL_MS = 1000;
 
     private final AtomicReference<MessageListener> messageListener = new AtomicReference<>();
     private volatile Thread listenerThread;
@@ -33,6 +33,7 @@ class KafkaJMSConsumer implements JMSConsumer {
         this.backend = backend;
         this.queueName = queueName;
         this.sessionMode = sessionMode;
+        this.listenerPollMs = backend.getListenerPollIntervalMs();
     }
 
     @Override
@@ -133,7 +134,7 @@ class KafkaJMSConsumer implements JMSConsumer {
         Thread t = new Thread(() -> {
             while (messageListener.get() == listener && !closed) {
                 try {
-                    Message msg = doReceive(LISTENER_POLL_MS);
+                    Message msg = doReceive(listenerPollMs);
                     if (msg != null) {
                         listener.onMessage(msg);
                     }
@@ -155,14 +156,17 @@ class KafkaJMSConsumer implements JMSConsumer {
 
     private void stopListenerThread() {
         Thread t = listenerThread;
-        listenerThread = null;
         if (t != null && t.isAlive()) {
+            // Interrupt BEFORE clearing reference to prevent race condition
             t.interrupt();
+            listenerThread = null;
             try {
                 t.join(2000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+        } else {
+            listenerThread = null;
         }
     }
 

@@ -32,8 +32,15 @@ class KafkaJMSProducer implements JMSProducer {
             byte[] body = tm.getText() != null ? tm.getText().getBytes(java.nio.charset.StandardCharsets.UTF_8) : new byte[0];
             backend.publish(queueName, null, body);
             return this;
+        } catch (javax.jms.JMSException e) {
+            // JMS-specific exception from getText() or getQueueName()
+            throw new JMSRuntimeException(e.getMessage(), e.getErrorCode(), e);
+        } catch (RuntimeException e) {
+            // Runtime exception from backend.publish() - preserve full context
+            throw new JMSRuntimeException("Failed to send message: " + e.getMessage(), null, e);
         } catch (Exception e) {
-            throw new JMSRuntimeException(e.getMessage() != null ? e.getMessage() : e.getClass().getName(), null, e);
+            // Unexpected checked exception - wrap and preserve
+            throw new JMSRuntimeException("Unexpected error sending message: " + e.getMessage(), null, e);
         }
     }
 

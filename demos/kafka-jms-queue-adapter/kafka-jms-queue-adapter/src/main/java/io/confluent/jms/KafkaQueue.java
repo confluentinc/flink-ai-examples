@@ -10,6 +10,7 @@ public class KafkaQueue implements Queue {
     private final String queueName;
 
     public KafkaQueue(String queueName) {
+        QueueNameValidator.validate(queueName);
         this.queueName = queueName;
     }
 

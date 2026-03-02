@@ -13,18 +13,24 @@ public class KafkaConnectionFactory implements ConnectionFactory {
 
     private final String bootstrapServers;
     private final String shareGroupPrefix;
+    private final QueueBackendConfig config;
 
-    private KafkaConnectionFactory(String bootstrapServers, String shareGroupPrefix) {
+    private KafkaConnectionFactory(String bootstrapServers, String shareGroupPrefix, QueueBackendConfig config) {
         this.bootstrapServers = bootstrapServers;
         this.shareGroupPrefix = shareGroupPrefix;
+        this.config = config;
     }
 
     public static KafkaConnectionFactory create(String bootstrapServers) {
-        return create(bootstrapServers, null);
+        return create(bootstrapServers, null, null);
     }
 
     public static KafkaConnectionFactory create(String bootstrapServers, String shareGroupPrefix) {
-        return new KafkaConnectionFactory(bootstrapServers, shareGroupPrefix);
+        return create(bootstrapServers, shareGroupPrefix, null);
+    }
+
+    public static KafkaConnectionFactory create(String bootstrapServers, String shareGroupPrefix, QueueBackendConfig config) {
+        return new KafkaConnectionFactory(bootstrapServers, shareGroupPrefix, config);
     }
 
     @Override
@@ -44,7 +50,9 @@ public class KafkaConnectionFactory implements ConnectionFactory {
 
     @Override
     public JMSContext createContext(String userName, String password, int sessionMode) {
-        KafkaQueueBackend backend = new KafkaQueueBackend(bootstrapServers, shareGroupPrefix);
+        KafkaQueueBackend backend = config != null
+            ? new KafkaQueueBackend(bootstrapServers, shareGroupPrefix, config)
+            : new KafkaQueueBackend(bootstrapServers, shareGroupPrefix);
         return new KafkaJMSContext(backend, sessionMode);
     }
 
